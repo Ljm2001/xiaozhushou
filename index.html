@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>小助手</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --green: #07C160;
+  --green-dark: #06AD56;
+  --bg: #EDEDED;
+  --white: #FFFFFF;
+  --text: #1A1A1A;
+  --text-secondary: #999999;
+  --border: #E0E0E0;
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background: #F5F5F5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+}
+
+#app {
+  width: 100%;
+  max-width: 480px;
+  height: 100dvh;
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 20px rgba(0,0,0,0.08);
+}
+
+/* ===== Chat Screen ===== */
+#chat-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hidden { display: none !important; }
+
+/* Header */
+#chat-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.header-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #E8F5E9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.header-info {
+  flex: 1;
+  margin-left: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.header-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.header-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Message list */
+#message-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Welcome message */
+.welcome-tip {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 20px 0 8px;
+}
+
+/* Message wrapper */
+.message {
+  display: flex;
+  margin-bottom: 16px;
+  align-items: flex-start;
+}
+
+.message.user { justify-content: flex-end; }
+
+/* Avatar for assistant */
+.message .avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: #E8F5E9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
+.message.user .avatar { display: none; }
+
+/* Bubble */
+.message .bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  font-size: 15px;
+  line-height: 1.6;
+  word-break: break-word;
+  position: relative;
+}
+
+.message.assistant .bubble {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 4px 12px 12px 12px;
+  color: var(--text);
+}
+
+.message.user .bubble {
+  background: var(--green);
+  color: #fff;
+  border-radius: 12px 4px 12px 12px;
+}
+
+/* Loading dots */
+.typing-dots {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.typing-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #B0B0B0;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0.6); }
+  40% { transform: scale(1); }
+}
+
+/* Input area */
+#input-area {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--white);
+  border-top: 1px solid var(--border);
+  gap: 10px;
+  flex-shrink: 0;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+#message-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 15px;
+  font-family: var(--font);
+  outline: none;
+  background: #F8F8F8;
+  transition: border-color 0.2s;
+}
+
+#message-input:focus { border-color: var(--green); background: #fff; }
+#message-input:disabled { opacity: 0.5; }
+
+#send-btn {
+  width: 60px;
+  height: 36px;
+  border: none;
+  border-radius: 20px;
+  background: var(--green);
+  color: #fff;
+  font-size: 14px;
+  font-family: var(--font);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+#send-btn:hover { background: var(--green-dark); }
+#send-btn:active { transform: scale(0.96); }
+
+#send-btn:disabled {
+  background: #C0C0C0;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Toast */
+#toast {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.78);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: var(--font);
+  z-index: 100;
+  pointer-events: none;
+  transition: opacity 0.3s, transform 0.3s;
+}
+
+#toast.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Chat Screen -->
+  <div id="chat-screen">
+    <header id="chat-header">
+      <div class="header-avatar">🧑‍🎓</div>
+      <div class="header-info">
+        <span class="header-name">小助手</span>
+        <span class="header-status">在线</span>
+      </div>
+    </header>
+
+    <div id="message-list">
+      <div class="welcome-tip">以下是和小助手的对话，小助手是你的学姐/学长，可以放心地跟TA聊天～</div>
+      <div class="message assistant" id="welcome-msg">
+        <div class="avatar">🧑‍🎓</div>
+        <div class="bubble">嗨～我是你的学姐/学长小助手，有什么想聊的都可以跟我说哈～</div>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <input id="message-input" type="text" placeholder="说点什么..." autocomplete="off" maxlength="500">
+      <button id="send-btn" disabled>发送</button>
+    </div>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+</div>
+
+<script>
+(function() {
+  // ===== State =====
+  const state = {
+    messages: [],
+    isLoading: false
+  };
+
+  // ===== DOM refs =====
+  const $messageList = document.getElementById('message-list');
+  const $messageInput = document.getElementById('message-input');
+  const $sendBtn = document.getElementById('send-btn');
+  const $toast = document.getElementById('toast');
+
+  // ===== Toast =====
+  let toastTimer = null;
+  function showToast(msg, duration = 3000) {
+    $toast.textContent = msg;
+    $toast.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $toast.classList.add('hidden'), duration);
+  }
+
+  // ===== Messages =====
+  function renderMessages() {
+    $messageList.innerHTML = '';
+
+    if (state.messages.length === 0) {
+      const tip = document.createElement('div');
+      tip.className = 'welcome-tip';
+      tip.textContent = '以下是和小助手的对话，小助手是你的学姐/学长，可以放心地跟TA聊天～';
+      $messageList.appendChild(tip);
+
+      const msg = document.createElement('div');
+      msg.className = 'message assistant';
+      msg.id = 'welcome-msg';
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = '🧑‍🎓';
+      msg.appendChild(avatar);
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = '嗨～我是你的学姐/学长小助手，有什么想聊的都可以跟我说哈～';
+      msg.appendChild(bubble);
+      $messageList.appendChild(msg);
+    }
+
+    state.messages.forEach((msg) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message ' + (msg.role === 'user' ? 'user' : 'assistant');
+
+      if (msg.role === 'assistant') {
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = '🧑‍🎓';
+        wrapper.appendChild(avatar);
+      }
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = msg.content;
+      wrapper.appendChild(bubble);
+      $messageList.appendChild(wrapper);
+    });
+
+    scrollToBottom();
+  }
+
+  function addAssistantPlaceholder() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message assistant';
+    wrapper.id = 'typing-indicator';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = '🧑‍🎓';
+    wrapper.appendChild(avatar);
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+    wrapper.appendChild(bubble);
+    $messageList.appendChild(wrapper);
+    scrollToBottom();
+  }
+
+  function removeAssistantPlaceholder() {
+    const el = document.getElementById('typing-indicator');
+    if (el) el.remove();
+  }
+
+  function scrollToBottom() {
+    requestAnimationFrame(() => {
+      $messageList.scrollTop = $messageList.scrollHeight;
+    });
+  }
+
+  // ===== API =====
+  async function callAPI() {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: state.messages })
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      const msg = data.error || '服务暂时不可用，请稍后重试';
+      showToast(msg);
+      throw new Error(msg);
+    }
+
+    if (!data.content || !data.content.trim()) {
+      showToast('响应为空，请重试');
+      throw new Error('Empty response');
+    }
+
+    return data.content.trim();
+  }
+
+  // ===== Send message =====
+  async function sendMessage() {
+    const text = $messageInput.value.trim();
+    if (!text || state.isLoading) return;
+
+    state.messages.push({ role: 'user', content: text });
+    $messageInput.value = '';
+    updateSendBtn();
+    renderMessages();
+    addAssistantPlaceholder();
+
+    state.isLoading = true;
+    updateSendBtn();
+    $messageInput.disabled = true;
+
+    try {
+      const reply = await callAPI();
+      state.messages.push({ role: 'assistant', content: reply });
+      removeAssistantPlaceholder();
+      renderMessages();
+    } catch(e) {
+      removeAssistantPlaceholder();
+    } finally {
+      state.isLoading = false;
+      updateSendBtn();
+      $messageInput.disabled = false;
+      $messageInput.focus();
+    }
+  }
+
+  function updateSendBtn() {
+    const hasText = $messageInput.value.trim().length > 0;
+    $sendBtn.disabled = !hasText || state.isLoading;
+  }
+
+  // ===== Event listeners =====
+  $sendBtn.addEventListener('click', sendMessage);
+  $messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  $messageInput.addEventListener('input', updateSendBtn);
+
+  // ===== Init =====
+  $messageInput.focus();
+  // Render empty state with welcome message
+  // (already in static HTML, but let renderMessages handle it for consistency)
+})();
+</script>
+</body>
+</html>
