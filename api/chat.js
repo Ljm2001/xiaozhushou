@@ -25,37 +25,41 @@ const SYSTEM_PROMPT = `你是一位大四的学姐（也可以是学长，根据
 
 像一个大几岁的学姐/学长那样自然地聊天，简单、直接、温暖。`;
 
-export default async function handler(req) {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  };
+function parseBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); } catch(e) { reject(new Error('Invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+export default async function handler(req, res) {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+    return res.status(204).end();
   }
 
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405, headers });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   if (!process.env.DEEPSEEK_API_KEY) {
-    return new Response(JSON.stringify({ error: '服务未配置 API Key' }), {
-      status: 500,
-      headers: { ...headers, 'Content-Type': 'application/json' }
-    });
+    return res.status(500).json({ error: '服务未配置 API Key，请在 Vercel 环境变量中设置 DEEPSEEK_API_KEY' });
   }
 
   try {
-    const body = await req.json();
+    const body = await parseBody(req);
     const { messages } = body;
 
     if (!messages || !Array.isArray(messages)) {
-      return new Response(JSON.stringify({ error: '请求参数错误' }), {
-        status: 400,
-        headers: { ...headers, 'Content-Type': 'application/json' }
-      });
+      return res.status(400).json({ error: '请求参数错误' });
     }
 
     const controller = new AbortController();
@@ -69,7 +73,7 @@ export default async function handler(req) {
         'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
       },
       body: JSON.stringify({
-        model: 'deepseek-v4-pro',
+        model: 'deepseek-chat',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           ...messages
@@ -85,26 +89,18 @@ export default async function handler(req) {
     if (!resp.ok) {
       const errText = resp.status === 429
         ? '请求太频繁，请稍后再试'
-        : `AI 服务错误 (${resp.status})`;
-      return new Response(JSON.stringify({ error: errText }), {
-        status: resp.status,
-        headers: { ...headers, 'Content-Type': 'application/json' }
-      });
+        : 'AI 服务暂时不可用（状态码：' + resp.status + '）';
+      return res.status(resp.status).json({ error: errText });
     }
 
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content || '';
 
-    return new Response(JSON.stringify({ content }), {
-      headers: { ...headers, 'Content-Type': 'application/json' }
-    });
+    return res.status(200).json({ content });
   } catch (e) {
     const errorMsg = e.name === 'AbortError'
       ? 'AI 响应超时，请重试'
-      : '服务器内部错误，请重试';
-    return new Response(JSON.stringify({ error: errorMsg }), {
-      status: 500,
-      headers: { ...headers, 'Content-Type': 'application/json' }
-    });
+      : '服务器内部错误：' + e.message;
+    return res.status(500).json({ error: errorMsg });
   }
 }

@@ -377,21 +377,33 @@ body {
 
   // ===== API =====
   async function callAPI() {
-    const resp = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: state.messages })
-    });
+    let resp;
+    try {
+      resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: state.messages })
+      });
+    } catch (e) {
+      showToast('网络连接失败，请检查网络后重试');
+      throw e;
+    }
 
-    const data = await resp.json();
+    let data;
+    try {
+      data = await resp.json();
+    } catch (e) {
+      showToast('服务响应异常（状态码：' + resp.status + '），请稍后重试');
+      throw e;
+    }
 
     if (!resp.ok) {
-      const msg = data.error || '服务暂时不可用，请稍后重试';
+      const msg = data && data.error ? data.error : '服务暂时不可用（状态码：' + resp.status + '）';
       showToast(msg);
       throw new Error(msg);
     }
 
-    if (!data.content || !data.content.trim()) {
+    if (!data || !data.content || !data.content.trim()) {
       showToast('响应为空，请重试');
       throw new Error('Empty response');
     }
@@ -421,6 +433,11 @@ body {
       renderMessages();
     } catch(e) {
       removeAssistantPlaceholder();
+      // Toast already shown in callAPI() for known errors;
+      // show a generic one only if an unexpected error slipped through
+      if (!e.message || e.message === 'Failed to fetch') {
+        showToast('发送失败，请检查网络后重试');
+      }
     } finally {
       state.isLoading = false;
       updateSendBtn();
