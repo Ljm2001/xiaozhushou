@@ -1,4 +1,5 @@
 {
   "name": "xiaozhushou",
-  "private": true
+  "private": true,
+  "type": "module"
 }

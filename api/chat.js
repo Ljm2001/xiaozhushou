@@ -43,15 +43,20 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+    res.statusCode = 204;
+    return res.end();
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.statusCode = 405;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: 'Method not allowed' }));
   }
 
   if (!process.env.DEEPSEEK_API_KEY) {
-    return res.status(500).json({ error: '服务未配置 API Key，请在 Vercel 环境变量中设置 DEEPSEEK_API_KEY' });
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: '服务未配置 API Key，请在 Vercel 环境变量中设置 DEEPSEEK_API_KEY' }));
   }
 
   try {
@@ -59,7 +64,9 @@ export default async function handler(req, res) {
     const { messages } = body;
 
     if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: '请求参数错误' });
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ error: '请求参数错误' }));
     }
 
     const controller = new AbortController();
@@ -90,17 +97,23 @@ export default async function handler(req, res) {
       const errText = resp.status === 429
         ? '请求太频繁，请稍后再试'
         : 'AI 服务暂时不可用（状态码：' + resp.status + '）';
-      return res.status(resp.status).json({ error: errText });
+      res.statusCode = resp.status;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ error: errText }));
     }
 
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content || '';
 
-    return res.status(200).json({ content });
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ content }));
   } catch (e) {
     const errorMsg = e.name === 'AbortError'
       ? 'AI 响应超时，请重试'
       : '服务器内部错误：' + e.message;
-    return res.status(500).json({ error: errorMsg });
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ error: errorMsg }));
   }
 }
