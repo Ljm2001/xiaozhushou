@@ -1,3 +1,7 @@
+// 先做个简单测试：直接返回一条固定回复，确认 API 能通
+// 如果这个版本有回复，说明问题出在 DeepSeek 调用上
+// 如果这个版本没回复，说明 Vercel 的函数部署有问题
+
 const SYSTEM_PROMPT = `你是一位大四的学姐（也可以是学长，根据对话自然切换），温柔、耐心、不带任何评判。你说话非常口语化、自然，就像在微信上和朋友聊天一样。
 
 重要规则：
@@ -14,106 +18,110 @@ const SYSTEM_PROMPT = `你是一位大四的学姐（也可以是学长，根据
 - "我懂，这种事情确实很烦"
 - "先别急着想怎么办，说出来就好多了"
 - "哈哈哈确实，有时候就是会这样"
-- "嗯嗯，然后呢？"
-- "抱抱你，这段时间辛苦啦"
-
-这样的回复是不可以的（反面示例）：
-- "我非常理解您现在的处境"
-- "建议您采取以下措施来缓解压力"
-- "人生的意义在于不断地探索和成长"
-- "根据心理学研究，情绪管理应该..."
 
 像一个大几岁的学姐/学长那样自然地聊天，简单、直接、温暖。`;
 
-function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try { resolve(JSON.parse(body)); } catch(e) { reject(new Error('Invalid JSON')); }
-    });
-    req.on('error', reject);
-  });
-}
+export default async function handler(request) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  };
 
-export default async function handler(req, res) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.statusCode = 204;
-    return res.end();
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  if (req.method !== 'POST') {
-    res.statusCode = 405;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: 'Method not allowed' }));
+  if (request.method !== 'POST') {
+    return new Response(JSON.stringify({ error: '只支持 POST 请求' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 
   if (!process.env.DEEPSEEK_API_KEY) {
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: '服务未配置 API Key，请在 Vercel 环境变量中设置 DEEPSEEK_API_KEY' }));
+    return new Response(JSON.stringify({ content: '【诊断消息】API 能通，但 DEEPSEEK_API_KEY 环境变量未设置。请在 Vercel → Settings → Environment Variables 中检查。' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 
   try {
-    const body = await parseBody(req);
-    const { messages } = body;
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return new Response(JSON.stringify({ error: '请求格式错误' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
+    const { messages } = body || {};
     if (!messages || !Array.isArray(messages)) {
-      res.statusCode = 400;
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: '请求参数错误' }));
+      return new Response(JSON.stringify({ error: '缺少 messages 参数' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
-    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...messages
-        ],
-        max_tokens: 400,
-        temperature: 0.9,
-        stream: false
-      })
-    });
-
-    clearTimeout(timeout);
+    let resp;
+    try {
+      resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            ...messages
+          ],
+          max_tokens: 400,
+          temperature: 0.9,
+          stream: false
+        })
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!resp.ok) {
-      const errText = resp.status === 429
-        ? '请求太频繁，请稍后再试'
-        : 'AI 服务暂时不可用（状态码：' + resp.status + '）';
-      res.statusCode = resp.status;
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ error: errText }));
+      let errInfo = '';
+      try { const eb = await resp.json(); errInfo = eb.error?.message || JSON.stringify(eb); } catch (e) {}
+
+      if (resp.status === 401) {
+        return new Response(JSON.stringify({ error: 'DeepSeek API Key 无效，请在 Vercel 中检查 DEEPSEEK_API_KEY 是否正确。' + errInfo }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      return new Response(JSON.stringify({ error: 'DeepSeek 错误 (' + resp.status + ')：' + errInfo }), {
+        status: 502,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content || '';
 
-    res.statusCode = 200;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ content }));
+    return new Response(JSON.stringify({ content: content.trim() || '嗯...刚才没打好，再说一次~' }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   } catch (e) {
-    const errorMsg = e.name === 'AbortError'
-      ? 'AI 响应超时，请重试'
-      : '服务器内部错误：' + e.message;
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    return res.end(JSON.stringify({ error: errorMsg }));
+    const msg = e.name === 'AbortError' ? 'AI 响应超时' : '服务器错误：' + (e.message || '未知');
+    return new Response(JSON.stringify({ error: msg }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 }
+
