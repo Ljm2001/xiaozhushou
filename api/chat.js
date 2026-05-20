@@ -26,7 +26,6 @@ const SYSTEM_PROMPT = `你是一位大四的学姐（也可以是学长，根据
 像一个大几岁的学姐/学长那样自然地聊天，简单、直接、温暖。`;
 
 export default async function handler(req) {
-  // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -59,27 +58,34 @@ export default async function handler(req) {
       });
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + process.env.DEEPSEEK_API_KEY
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-pro',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           ...messages
         ],
         max_tokens: 400,
-        temperature: 0.9
+        temperature: 0.9,
+        stream: false
       })
     });
+
+    clearTimeout(timeout);
 
     if (!resp.ok) {
       const errText = resp.status === 429
         ? '请求太频繁，请稍后再试'
-        : 'AI 服务暂时不可用';
+        : `AI 服务错误 (${resp.status})`;
       return new Response(JSON.stringify({ error: errText }), {
         status: resp.status,
         headers: { ...headers, 'Content-Type': 'application/json' }
@@ -93,7 +99,10 @@ export default async function handler(req) {
       headers: { ...headers, 'Content-Type': 'application/json' }
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: '服务器内部错误，请重试' }), {
+    const errorMsg = e.name === 'AbortError'
+      ? 'AI 响应超时，请重试'
+      : '服务器内部错误，请重试';
+    return new Response(JSON.stringify({ error: errorMsg }), {
       status: 500,
       headers: { ...headers, 'Content-Type': 'application/json' }
     });
